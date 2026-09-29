@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Scribe Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#14213D;
+    --paper:#F7F5F0;
+    --panel:#FFFFFF;
+    --teal:#2A6F6F;
+    --teal-dark:#1E5252;
+    --amber:#E8A33D;
+    --line:#DCD7CA;
+    --muted:#6B6B63;
+    --danger:#B5482C;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'IBM Plex Sans',system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+  }
+  .app{
+    max-width:520px;
+    margin:0 auto;
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    background:var(--paper);
+  }
+  header{
+    padding:22px 20px 16px;
+    border-bottom:1px solid var(--line);
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+  }
+  header h1{
+    font-size:19px;
+    font-weight:600;
+    margin:0;
+    letter-spacing:-0.01em;
+  }
+  header .tag{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    color:var(--muted);
+  }
+  main{
+    flex:1;
+    padding:24px 20px 40px;
+    display:flex;
+    flex-direction:column;
+    gap:22px;
+  }
+
+  /* API key */
+  .key-panel{
+    background:var(--panel);
+    border:1px solid var(--line);
+    padding:14px 16px;
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+  .key-panel label{
+    font-size:12px;
+    font-weight:600;
+    color:var(--ink);
+  }
+  .key-row{
+    display:flex;
+    gap:8px;
+  }
+  .key-row input{
+    flex:1;
+    border:1px solid var(--line);
+    padding:10px 12px;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:13px;
+    background:var(--paper);
+    color:var(--ink);
+  }
+  .key-row input:focus{outline:2px solid var(--teal);outline-offset:-1px;}
+  .key-status{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    color:var(--muted);
+  }
+  .key-status.ok{color:var(--teal-dark);}
+
+  /* Recorder */
+  .recorder{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:14px;
+    padding:28px 0 18px;
+  }
+  .rec-btn{
+    width:96px;
+    height:96px;
+    border-radius:50%;
+    border:none;
+    background:var(--teal);
+    color:white;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+    position:relative;
+    transition:background .15s ease, transform .1s ease;
+  }
+  .rec-btn:active{transform:scale(0.96);}
+  .rec-btn.live{background:var(--danger);}
+  .rec-btn svg{width:34px;height:34px;}
+  .rec-ring{
+    position:absolute;
+    inset:-8px;
+    border-radius:50%;
+    border:2px solid var(--danger);
+    opacity:0;
+  }
+  .rec-btn.live .rec-ring{
+    opacity:1;
+    animation:pulse 1.6s ease-out infinite;
+  }
+  @keyframes pulse{
+    0%{transform:scale(1);opacity:.7;}
+    100%{transform:scale(1.35);opacity:0;}
+  }
+  .rec-status{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12px;
+    color:var(--muted);
+    letter-spacing:.02em;
+    height:16px;
+  }
+  .rec-status.live{color:var(--danger);}
+  .rec-time{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:22px;
+    color:var(--ink);
+    font-weight:500;
+    min-height:28px;
+  }
+
+  /* Transcript */
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--line);
+  }
+  .panel-head{
+    padding:12px 16px;
+    border-bottom:1px solid var(--line);
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+  }
+  .panel-head h2{
+    font-size:12px;
+    margin:0;
+    text-transform:none;
+    font-weight:600;
+    color:var(--ink);
+  }
+  .panel-head .count{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    color:var(--muted);
+  }
+  .transcript-body{
+    padding:16px;
+    min-height:90px;
+    max-height:220px;
+    overflow-y:auto;
+    font-size:14.5px;
+    line-height:1.55;
+    color:var(--ink);
+  }
+  .transcript-body:empty::before,
+  .transcript-body.empty::before{
+    content:"Transcript will appear here once you start recording.";
+    color:var(--muted);
+    font-style:italic;
+  }
+  .transcript-interim{color:var(--muted);}
+
+  .actions{
+    display:flex;
+    gap:10px;
+  }
+  button.primary{
+    flex:1;
+    background:var(--ink);
+    color:white;
+    border:none;
+    padding:14px 16px;
+    font-family:'IBM Plex Sans',sans-serif;
+    font-size:14px;
+    font-weight:600;
+    cursor:pointer;
+    transition:opacity .15s;
+  }
+  button.primary:disabled{opacity:.4;cursor:default;}
+  button.primary:active:not(:disabled){opacity:.85;}
+  button.ghost{
+    background:transparent;
+    color:var(--muted);
+    border:1px solid var(--line);
+    padding:14px 16px;
+    font-family:'IBM Plex Sans',sans-serif;
+    font-size:14px;
+    cursor:pointer;
+  }
+
+  /* Note */
+  .note-section{display:none;flex-direction:column;gap:16px;}
+  .note-section.visible{display:flex;}
+  .note-block{
+    background:var(--panel);
+    border:1px solid var(--line);
+  }
+  .note-block-head{
+    padding:10px 16px;
+    border-bottom:1px solid var(--line);
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .note-block-head .dot{
+    width:6px;height:6px;border-radius:50%;
+    background:var(--teal);
+    flex-shrink:0;
+  }
+  .note-block-head h3{
+    font-size:12.5px;
+    margin:0;
+    font-weight:600;
+    color:var(--ink);
+  }
+  .note-block textarea{
+    width:100%;
+    border:none;
+    resize:vertical;
+    padding:14px 16px;
+    font-family:'IBM Plex Serif',Georgia,serif;
+    font-size:15px;
+    line-height:1.6;
+    color:var(--ink);
+    background:transparent;
+    min-height:70px;
+  }
+  .note-block textarea:focus{outline:none;background:#FCFBF8;}
+
+  .loading{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:18px 16px;
+    color:var(--muted);
+    font-size:13.5px;
+  }
+  .spinner{
+    width:14px;height:14px;
+    border:2px solid var(--line);
+    border-top-color:var(--teal);
+    border-radius:50%;
+    animation:spin .7s linear infinite;
+    flex-shrink:0;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  .notice{
+    font-size:11.5px;
+    color:var(--muted);
+    line-height:1.5;
+    padding:12px 14px;
+    border-left:2px solid var(--amber);
+    background:#FBF6EC;
+  }
+  .notice strong{color:var(--ink);}
+
+  .err{
+    font-size:13px;
+    color:var(--danger);
+    padding:12px 14px;
+    border:1px solid var(--danger);
+    background:#FBEDE8;
+    display:none;
+  }
+  .err.visible{display:block;}
+
+  ::-webkit-scrollbar{width:6px;}
+  ::-webkit-scrollbar-thumb{background:var(--line);}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Scribe Lab</h1>
+    <span class="tag">PROTOTYPE&nbsp;·&nbsp;NOT&nbsp;FOR&nbsp;PHI</span>
+  </header>
+
+  <main>
+    <div class="key-panel">
+      <label for="apiKeyInput">Anthropic API key (kept in memory only, never saved)</label>
+      <div class="key-row">
+        <input type="password" id="apiKeyInput" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
+        <button class="ghost" id="clearKeyBtn" type="button">Clear</button>
+      </div>
+      <span class="key-status" id="keyStatus">no key set — drafting is disabled</span>
+    </div>
+
+    <div class="recorder">
+      <button class="rec-btn" id="recBtn" aria-label="Start recording">
+        <span class="rec-ring"></span>
+        <svg id="recIcon" viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="9" fill="currentColor"/>
+        </svg>
+      </button>
+      <div class="rec-status" id="recStatus">tap to start</div>
+      <div class="rec-time" id="recTime"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Live transcript</h2>
+        <span class="count" id="wordCount">0 words</span>
+      </div>
+      <div class="transcript-body empty" id="transcriptBody"></div>
+    </div>
+
+    <div class="actions">
+      <button class="primary" id="draftBtn" disabled>Draft note</button>
+      <button class="ghost" id="resetBtn">Reset</button>
+    </div>
+
+    <div class="err" id="errBox"></div>
+
+    <div class="note-section" id="noteSection">
+      <div class="loading" id="noteLoading" style="display:none;">
+        <span class="spinner"></span> Drafting note from transcript…
+      </div>
+      <div id="noteBlocks"></div>
+    </div>
+
+    <div class="notice">
+      <strong>Prototype notice —</strong> transcription here runs through your browser's built-in speech engine, which sends audio off-device and is not a signed BAA path. Swap in Deepgram or AWS Transcribe Medical before this touches a real patient encounter. The API key you enter above is held only in page memory for this session — it is never written to disk, storage, or logs — but it is still sent directly from your browser to Anthropic's API, which is fine for lab testing but not how a production app should handle credentials.
+    </div>
+  </main>
+</div>
+
+<script>
+const SECTIONS = [
+  { id: 'hpi', label: 'History of Present Illness' },
+  { id: 'exam', label: 'Exam / Objective Findings' },
+  { id: 'assessment', label: 'Assessment' },
+  { id: 'plan', label: 'Plan — Treatment & Prescriptions' },
+  { id: 'followup', label: 'Follow-up & Patient Instructions' },
+];
+
+let recognition = null;
+let listening = false;
+let finalTranscript = '';
+let interim = '';
+let startTime = null;
+let timerHandle = null;
+let apiKey = '';
+
+const apiKeyInput = document.getElementById('apiKeyInput');
+const clearKeyBtn = document.getElementById('clearKeyBtn');
+const keyStatus = document.getElementById('keyStatus');
+const recBtn = document.getElementById('recBtn');
+const recStatus = document.getElementById('recStatus');
+const recTime = document.getElementById('recTime');
+const transcriptBody = document.getElementById('transcriptBody');
+const wordCount = document.getElementById('wordCount');
+const draftBtn = document.getElementById('draftBtn');
+const resetBtn = document.getElementById('resetBtn');
+const errBox = document.getElementById('errBox');
+const noteSection = document.getElementById('noteSection');
+const noteLoading = document.getElementById('noteLoading');
+const noteBlocks = document.getElementById('noteBlocks');
+
+function showErr(msg){
+  errBox.textContent = msg;
+  errBox.classList.add('visible');
+}
+function clearErr(){
+  errBox.classList.remove('visible');
+  errBox.textContent = '';
+}
+
+function updateDraftEnabled(){
+  const words = finalTranscript.trim().length ? finalTranscript.trim().split(/\s+/).length : 0;
+  draftBtn.disabled = words < 5 || !apiKey;
+}
+
+apiKeyInput.addEventListener('input', () => {
+  apiKey = apiKeyInput.value.trim();
+  if(apiKey){
+    keyStatus.textContent = 'key set for this session';
+    keyStatus.classList.add('ok');
+  } else {
+    keyStatus.textContent = 'no key set — drafting is disabled';
+    keyStatus.classList.remove('ok');
+  }
+  updateDraftEnabled();
+});
+
+clearKeyBtn.addEventListener('click', () => {
+  apiKey = '';
+  apiKeyInput.value = '';
+  keyStatus.textContent = 'no key set — drafting is disabled';
+  keyStatus.classList.remove('ok');
+  updateDraftEnabled();
+});
+
+function renderTranscript(){
+  const full = finalTranscript + (interim ? (finalTranscript ? ' ' : '') + interim : '');
+  if(full.trim().length === 0){
+    transcriptBody.classList.add('empty');
+    transcriptBody.innerHTML = '';
+  } else {
+    transcriptBody.classList.remove('empty');
+    const finalPart = finalTranscript ? finalTranscript.replace(/</g,'&lt;') : '';
+    const interimPart = interim ? `<span class="transcript-interim"> ${interim.replace(/</g,'&lt;')}</span>` : '';
+    transcriptBody.innerHTML = finalPart + interimPart;
+    transcriptBody.scrollTop = transcriptBody.scrollHeight;
+  }
+  const words = full.trim().length ? full.trim().split(/\s+/).length : 0;
+  wordCount.textContent = words + ' word' + (words === 1 ? '' : 's');
+  updateDraftEnabled();
+}
+
+function formatTime(ms){
+  const totalSec = Math.floor(ms/1000);
+  const m = Math.floor(totalSec/60).toString().padStart(2,'0');
+  const s = (totalSec%60).toString().padStart(2,'0');
+  return m + ':' + s;
+}
+
+function startTimer(){
+  startTime = Date.now();
+  timerHandle = setInterval(()=>{
+    recTime.textContent = formatTime(Date.now() - startTime);
+  }, 250);
+}
+function stopTimer(){
+  if(timerHandle){ clearInterval(timerHandle); timerHandle = null; }
+}
+
+function initRecognition(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SR){
+    showErr('This browser has no built-in speech recognition (try Chrome). You can still type a transcript manually below.');
+    return null;
+  }
+  const r = new SR();
+  r.continuous = true;
+  r.interimResults = true;
+  r.lang = 'en-US';
+
+  r.onresult = (e) => {
+    let newFinal = '';
+    interim = '';
+    for(let i = e.resultIndex; i < e.results.length; i++){
+      const res = e.results[i];
+      if(res.isFinal){
+        newFinal += res[0].transcript + ' ';
+      } else {
+        interim += res[0].transcript;
+      }
+    }
+    if(newFinal){
+      finalTranscript = (finalTranscript + ' ' + newFinal).trim();
+    }
+    renderTranscript();
+  };
+  r.onerror = (e) => {
+    if(e.error === 'no-speech') return;
+    showErr('Recognition error: ' + e.error);
+  };
+  r.onend = () => {
+    if(listening){
+      // browsers auto-stop after silence; restart to keep session going
+      try{ r.start(); }catch(err){}
+    }
+  };
+  return r;
+}
+
+recBtn.addEventListener('click', () => {
+  clearErr();
+  if(!listening){
+    if(!recognition){ recognition = initRecognition(); }
+    if(!recognition) return;
+    try{
+      recognition.start();
+    }catch(err){}
+    listening = true;
+    recBtn.classList.add('live');
+    recStatus.textContent = 'recording — tap to stop';
+    recStatus.classList.add('live');
+    startTimer();
+  } else {
+    listening = false;
+    if(recognition){ try{ recognition.stop(); }catch(err){} }
+    recBtn.classList.remove('live');
+    recStatus.textContent = 'stopped';
+    recStatus.classList.remove('live');
+    stopTimer();
+  }
+});
+
+resetBtn.addEventListener('click', () => {
+  finalTranscript = '';
+  interim = '';
+  listening = false;
+  if(recognition){ try{ recognition.stop(); }catch(err){} }
+  recBtn.classList.remove('live');
+  recStatus.textContent = 'tap to start';
+  recStatus.classList.remove('live');
+  recTime.textContent = '';
+  stopTimer();
+  renderTranscript();
+  noteSection.classList.remove('visible');
+  noteBlocks.innerHTML = '';
+  clearErr();
+});
+
+draftBtn.addEventListener('click', async () => {
+  clearErr();
+  const transcriptText = finalTranscript.trim();
+  if(transcriptText.length < 5 || !apiKey) return;
+
+  noteSection.classList.add('visible');
+  noteBlocks.innerHTML = '';
+  noteLoading.style.display = 'flex';
+  draftBtn.disabled = true;
+
+  const systemPrompt = `You are assisting a Family Nurse Practitioner by drafting a clinical note from a raw visit transcript. Respond ONLY with a JSON object, no markdown fences, no preamble. The object must have exactly these keys, each a string of plain text (use short paragraphs or simple "- " bullet lines, no markdown headers or asterisks):
+{
+  "hpi": "...",
+  "exam": "...",
+  "assessment": "...",
+  "plan": "...",
+  "followup": "..."
+}
+"plan" should include treatment plan, any prescriptions worth flagging (name, and reasoning only — never invent a dose that wasn't discussed), and referrals if implied. "followup" should include follow-up timing and patient instructions. If the transcript doesn't contain enough information for a section, write "Not discussed in this transcript." for that key. Never fabricate vital signs, exam findings, or medication doses that are not present in the transcript.`;
+
+  try{
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-5-5",
+        max_tokens: 1000,
+        system: systemPrompt,
+        messages: [
+          { role: "user", content: "Visit transcript:\n\n" + transcriptText }
+        ],
+      })
+    });
+    if(!response.ok){
+      let detail = '';
+      try{ const errData = await response.json(); detail = errData?.error?.message || ''; }catch(parseErr){}
+      throw new Error('API request failed (' + response.status + ')' + (detail ? ': ' + detail : ''));
+    }
+    const data = await response.json();
+    const textBlock = (data.content || []).find(b => b.type === 'text');
+    if(!textBlock){ throw new Error('No text in response'); }
+    let cleaned = textBlock.text.trim().replace(/^```json/i,'').replace(/^```/,'').replace(/```$/,'').trim();
+    const parsed = JSON.parse(cleaned);
+
+    noteBlocks.innerHTML = '';
+    SECTIONS.forEach(sec => {
+      const block = document.createElement('div');
+      block.className = 'note-block';
+      block.style.marginBottom = '14px';
+      block.innerHTML = `
+        <div class="note-block-head"><span class="dot"></span><h3>${sec.label}</h3></div>
+        <textarea rows="3" id="field-${sec.id}"></textarea>
+      `;
+      noteBlocks.appendChild(block);
+      const ta = block.querySelector('textarea');
+      ta.value = parsed[sec.id] || 'Not discussed in this transcript.';
+      ta.style.height = 'auto';
+      ta.style.height = Math.max(70, ta.scrollHeight) + 'px';
+      ta.addEventListener('input', () => {
+        ta.style.height = 'auto';
+        ta.style.height = ta.scrollHeight + 'px';
+      });
+    });
+  } catch(err){
+    showErr('Could not draft the note: ' + err.message);
+  } finally {
+    noteLoading.style.display = 'none';
+    updateDraftEnabled();
+  }
+});
+
+renderTranscript();
+</script>
+</body>
+</html>
