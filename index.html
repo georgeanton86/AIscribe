@@ -482,7 +482,15 @@ function initRecognition(){
       }
     }
     if(newFinal){
-      finalTranscript = (finalTranscript + ' ' + newFinal).trim();
+      const trimmedNew = newFinal.trim();
+      const normalize = (s) => s.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
+      const normNew = normalize(trimmedNew);
+      const normExisting = normalize(finalTranscript);
+      // mobile browsers sometimes re-transcribe the same audio on restart;
+      // skip a chunk that just repeats what's already at the end of the transcript
+      if(normNew && !normExisting.endsWith(normNew)){
+        finalTranscript = (finalTranscript + ' ' + trimmedNew).trim();
+      }
     }
     renderTranscript();
   };
