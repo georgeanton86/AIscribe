@@ -225,6 +225,35 @@
   /* Note */
   .note-section{display:none;flex-direction:column;gap:16px;}
   .note-section.visible{display:flex;}
+  .note-section-head{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+  }
+  .note-section-head h2{
+    font-size:12px;
+    margin:0;
+    font-weight:600;
+    color:var(--ink);
+  }
+  .note-update-status{
+    display:none;
+    align-items:center;
+    gap:6px;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    color:var(--muted);
+  }
+  .note-update-status.visible{display:flex;}
+  .note-update-status .spinner-sm{
+    width:10px;height:10px;
+    border:2px solid var(--line);
+    border-top-color:var(--teal);
+    border-radius:50%;
+    animation:spin .7s linear infinite;
+    flex-shrink:0;
+  }
+  .note-block.dirty .note-block-head .dot{background:var(--amber);}
   .note-block{
     background:var(--panel);
     border:1px solid var(--line);
@@ -347,6 +376,10 @@
     <div class="err" id="errBox"></div>
 
     <div class="note-section" id="noteSection">
+      <div class="note-section-head">
+        <h2>SOAP note</h2>
+        <span class="note-update-status" id="noteUpdateStatus"><span class="spinner-sm"></span> updating…</span>
+      </div>
       <div class="loading" id="noteLoading" style="display:none;">
         <span class="spinner"></span> Drafting note from transcript…
       </div>
@@ -354,7 +387,7 @@
     </div>
 
     <div class="notice">
-      <strong>Prototype notice —</strong> transcription here runs through your browser's built-in speech engine, which sends audio off-device and is not a signed BAA path. Swap in Deepgram or AWS Transcribe Medical before this touches a real patient encounter. The API key you enter above is held only in page memory for this session — it is never written to disk, storage, or logs — but it is still sent directly from your browser to Anthropic's API, which is fine for lab testing but not how a production app should handle credentials.
+      <strong>Prototype notice —</strong> transcription here runs through your browser's built-in speech engine, which sends audio off-device and is not a signed BAA path. Swap in Deepgram or AWS Transcribe Medical before this touches a real patient encounter. The API key you enter above is held only in page memory for this session — it is never written to disk, storage, or logs — but it is still sent directly from your browser to Anthropic's API, which is fine for lab testing but not how a production app should handle credentials. While recording, the note sections below refill automatically every ~20s as new transcript comes in; an amber dot marks a section you've edited by hand, and auto-updates leave those alone.
     </div>
   </main>
 </div>
@@ -368,6 +401,11 @@ const SECTIONS = [
   { id: 'followup', label: 'Follow-up & Patient Instructions' },
 ];
 
+const AUTO_UPDATE_INTERVAL_MS = 20000;
+const AUTO_UPDATE_MIN_NEW_WORDS = 8;
+const AUTO_UPDATE_MODEL = 'claude-haiku-4-5-20251001'; // fast/cheap — runs many times per visit
+const MANUAL_DRAFT_MODEL = 'claude-sonnet-5-5'; // higher quality — runs once, on demand
+
 let recognition = null;
 let listening = false;
 let finalTranscript = '';
@@ -375,6 +413,10 @@ let interim = '';
 let startTime = null;
 let timerHandle = null;
 let apiKey = '';
+let autoUpdateTimer = null;
+let lastAutoDraftWordCount = 0;
+let draftInFlight = false;
+const dirtyFields = new Set();
 
 const apiKeyInput = document.getElementById('apiKeyInput');
 const clearKeyBtn = document.getElementById('clearKeyBtn');
@@ -390,6 +432,7 @@ const errBox = document.getElementById('errBox');
 const noteSection = document.getElementById('noteSection');
 const noteLoading = document.getElementById('noteLoading');
 const noteBlocks = document.getElementById('noteBlocks');
+const noteUpdateStatus = document.getElementById('noteUpdateStatus');
 
 function showErr(msg){
   errBox.textContent = msg;
@@ -400,9 +443,12 @@ function clearErr(){
   errBox.textContent = '';
 }
 
+function wordCountOf(text){
+  return text.trim().length ? text.trim().split(/\s+/).length : 0;
+}
+
 function updateDraftEnabled(){
-  const words = finalTranscript.trim().length ? finalTranscript.trim().split(/\s+/).length : 0;
-  draftBtn.disabled = words < 5 || !apiKey;
+  draftBtn.disabled = wordCountOf(finalTranscript) < 5 || !apiKey;
 }
 
 apiKeyInput.addEventListener('input', () => {
@@ -437,7 +483,7 @@ function renderTranscript(){
     transcriptBody.innerHTML = finalPart + interimPart;
     transcriptBody.scrollTop = transcriptBody.scrollHeight;
   }
-  const words = full.trim().length ? full.trim().split(/\s+/).length : 0;
+  const words = wordCountOf(full);
   wordCount.textContent = words + ' word' + (words === 1 ? '' : 's');
   updateDraftEnabled();
 }
@@ -500,11 +546,20 @@ function initRecognition(){
   };
   r.onend = () => {
     if(listening){
-      // browsers auto-stop after silence; restart to keep session going
-      try{ r.start(); }catch(err){}
+      // Mobile browsers auto-stop after a pause, and reusing the same
+      // recognition object on restart can replay its last buffered audio
+      // (producing duplicate text). A fresh instance avoids that.
+      recognition = initRecognition();
+      if(recognition){ try{ recognition.start(); }catch(err){} }
     }
   };
   return r;
+}
+
+function autoUpdateTick(){
+  const words = wordCountOf(finalTranscript);
+  if(!apiKey || draftInFlight || words - lastAutoDraftWordCount < AUTO_UPDATE_MIN_NEW_WORDS) return;
+  runDraft('auto');
 }
 
 recBtn.addEventListener('click', () => {
@@ -520,6 +575,7 @@ recBtn.addEventListener('click', () => {
     recStatus.textContent = 'recording — tap to stop';
     recStatus.classList.add('live');
     startTimer();
+    autoUpdateTimer = setInterval(autoUpdateTick, AUTO_UPDATE_INTERVAL_MS);
   } else {
     listening = false;
     if(recognition){ try{ recognition.stop(); }catch(err){} }
@@ -527,6 +583,8 @@ recBtn.addEventListener('click', () => {
     recStatus.textContent = 'stopped';
     recStatus.classList.remove('live');
     stopTimer();
+    if(autoUpdateTimer){ clearInterval(autoUpdateTimer); autoUpdateTimer = null; }
+    autoUpdateTick(); // catch up on anything said since the last auto-update
   }
 });
 
@@ -540,23 +598,16 @@ resetBtn.addEventListener('click', () => {
   recStatus.classList.remove('live');
   recTime.textContent = '';
   stopTimer();
+  if(autoUpdateTimer){ clearInterval(autoUpdateTimer); autoUpdateTimer = null; }
+  lastAutoDraftWordCount = 0;
+  dirtyFields.clear();
   renderTranscript();
   noteSection.classList.remove('visible');
   noteBlocks.innerHTML = '';
   clearErr();
 });
 
-draftBtn.addEventListener('click', async () => {
-  clearErr();
-  const transcriptText = finalTranscript.trim();
-  if(transcriptText.length < 5 || !apiKey) return;
-
-  noteSection.classList.add('visible');
-  noteBlocks.innerHTML = '';
-  noteLoading.style.display = 'flex';
-  draftBtn.disabled = true;
-
-  const systemPrompt = `You are assisting a Family Nurse Practitioner by drafting a clinical note from a raw visit transcript. Respond ONLY with a JSON object, no markdown fences, no preamble. The object must have exactly these keys, each a string of plain text (use short paragraphs or simple "- " bullet lines, no markdown headers or asterisks):
+const SYSTEM_PROMPT = `You are assisting a Family Nurse Practitioner by drafting a clinical note from a raw, possibly still-in-progress visit transcript. Respond ONLY with a JSON object, no markdown fences, no preamble. The object must have exactly these keys, each a string of plain text (use short paragraphs or simple "- " bullet lines, no markdown headers or asterisks):
 {
   "hpi": "...",
   "exam": "...",
@@ -564,7 +615,58 @@ draftBtn.addEventListener('click', async () => {
   "plan": "...",
   "followup": "..."
 }
-"plan" should include treatment plan, any prescriptions worth flagging (name, and reasoning only — never invent a dose that wasn't discussed), and referrals if implied. "followup" should include follow-up timing and patient instructions. If the transcript doesn't contain enough information for a section, write "Not discussed in this transcript." for that key. Never fabricate vital signs, exam findings, or medication doses that are not present in the transcript.`;
+"plan" should include treatment plan, any prescriptions worth flagging (name, and reasoning only — never invent a dose that wasn't discussed), and referrals if implied. "followup" should include follow-up timing and patient instructions. If the transcript doesn't contain enough information for a section yet, write "Not discussed in this transcript." for that key — that's expected mid-visit. Never fabricate vital signs, exam findings, or medication doses that are not present in the transcript.`;
+
+function buildNoteBlocksIfNeeded(){
+  if(noteBlocks.children.length > 0) return;
+  SECTIONS.forEach(sec => {
+    const block = document.createElement('div');
+    block.className = 'note-block';
+    block.style.marginBottom = '14px';
+    block.dataset.sectionId = sec.id;
+    block.innerHTML = `
+      <div class="note-block-head"><span class="dot"></span><h3>${sec.label}</h3></div>
+      <textarea rows="3" id="field-${sec.id}"></textarea>
+    `;
+    noteBlocks.appendChild(block);
+    const ta = block.querySelector('textarea');
+    ta.addEventListener('input', () => {
+      dirtyFields.add(sec.id);
+      block.classList.add('dirty');
+      ta.style.height = 'auto';
+      ta.style.height = ta.scrollHeight + 'px';
+    });
+  });
+}
+
+function applyParsedNote(parsed){
+  buildNoteBlocksIfNeeded();
+  SECTIONS.forEach(sec => {
+    if(dirtyFields.has(sec.id)) return; // don't clobber a section the user already edited by hand
+    const ta = document.getElementById('field-' + sec.id);
+    if(!ta) return;
+    ta.value = parsed[sec.id] || 'Not discussed in this transcript.';
+    ta.style.height = 'auto';
+    ta.style.height = Math.max(70, ta.scrollHeight) + 'px';
+  });
+}
+
+async function runDraft(mode){
+  const transcriptText = finalTranscript.trim();
+  if(transcriptText.length < 5 || !apiKey || draftInFlight) return;
+
+  draftInFlight = true;
+  const wordsAtRequestTime = wordCountOf(finalTranscript);
+  const isManual = mode === 'manual';
+
+  noteSection.classList.add('visible');
+  if(isManual){
+    clearErr();
+    draftBtn.disabled = true;
+    if(noteBlocks.children.length === 0){ noteLoading.style.display = 'flex'; }
+  } else {
+    noteUpdateStatus.classList.add('visible');
+  }
 
   try{
     const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -576,11 +678,11 @@ draftBtn.addEventListener('click', async () => {
         "anthropic-dangerous-direct-browser-access": "true"
       },
       body: JSON.stringify({
-        model: "claude-sonnet-5-5",
+        model: isManual ? MANUAL_DRAFT_MODEL : AUTO_UPDATE_MODEL,
         max_tokens: 1000,
-        system: systemPrompt,
+        system: SYSTEM_PROMPT,
         messages: [
-          { role: "user", content: "Visit transcript:\n\n" + transcriptText }
+          { role: "user", content: "Visit transcript so far:\n\n" + transcriptText }
         ],
       })
     });
@@ -594,33 +696,20 @@ draftBtn.addEventListener('click', async () => {
     if(!textBlock){ throw new Error('No text in response'); }
     let cleaned = textBlock.text.trim().replace(/^```json/i,'').replace(/^```/,'').replace(/```$/,'').trim();
     const parsed = JSON.parse(cleaned);
-
-    noteBlocks.innerHTML = '';
-    SECTIONS.forEach(sec => {
-      const block = document.createElement('div');
-      block.className = 'note-block';
-      block.style.marginBottom = '14px';
-      block.innerHTML = `
-        <div class="note-block-head"><span class="dot"></span><h3>${sec.label}</h3></div>
-        <textarea rows="3" id="field-${sec.id}"></textarea>
-      `;
-      noteBlocks.appendChild(block);
-      const ta = block.querySelector('textarea');
-      ta.value = parsed[sec.id] || 'Not discussed in this transcript.';
-      ta.style.height = 'auto';
-      ta.style.height = Math.max(70, ta.scrollHeight) + 'px';
-      ta.addEventListener('input', () => {
-        ta.style.height = 'auto';
-        ta.style.height = ta.scrollHeight + 'px';
-      });
-    });
+    applyParsedNote(parsed);
+    lastAutoDraftWordCount = wordsAtRequestTime;
   } catch(err){
-    showErr('Could not draft the note: ' + err.message);
+    // stay quiet on auto-update failures (it'll just retry next tick); surface manual ones
+    if(isManual){ showErr('Could not draft the note: ' + err.message); }
   } finally {
+    draftInFlight = false;
     noteLoading.style.display = 'none';
+    noteUpdateStatus.classList.remove('visible');
     updateDraftEnabled();
   }
-});
+}
+
+draftBtn.addEventListener('click', () => runDraft('manual'));
 
 renderTranscript();
 </script>
