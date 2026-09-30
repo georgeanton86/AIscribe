@@ -372,6 +372,7 @@
       <button class="primary" id="draftBtn" disabled>Draft note</button>
       <button class="ghost" id="resetBtn">Reset</button>
     </div>
+    <div class="rec-status" id="draftHint" style="text-align:center;"></div>
 
     <div class="err" id="errBox"></div>
 
@@ -403,7 +404,7 @@ const SECTIONS = [
 
 const AUTO_UPDATE_INTERVAL_MS = 20000;
 const AUTO_UPDATE_MIN_NEW_WORDS = 8;
-const AUTO_UPDATE_MODEL = 'claude-haiku-4-5-20251001'; // fast/cheap — runs many times per visit
+const AUTO_UPDATE_MODEL = 'claude-haiku-4-5'; // fast/cheap — runs many times per visit
 const MANUAL_DRAFT_MODEL = 'claude-sonnet-5-5'; // higher quality — runs once, on demand
 
 let recognition = null;
@@ -433,6 +434,7 @@ const noteSection = document.getElementById('noteSection');
 const noteLoading = document.getElementById('noteLoading');
 const noteBlocks = document.getElementById('noteBlocks');
 const noteUpdateStatus = document.getElementById('noteUpdateStatus');
+const draftHint = document.getElementById('draftHint');
 
 function showErr(msg){
   errBox.textContent = msg;
@@ -448,7 +450,15 @@ function wordCountOf(text){
 }
 
 function updateDraftEnabled(){
-  draftBtn.disabled = wordCountOf(finalTranscript) < 5 || !apiKey;
+  const words = wordCountOf(finalTranscript);
+  draftBtn.disabled = words < 5 || !apiKey;
+  if(!apiKey){
+    draftHint.textContent = 'enter an API key above to enable drafting';
+  } else if(words < 5){
+    draftHint.textContent = 'say a bit more first (need at least 5 words)';
+  } else {
+    draftHint.textContent = '';
+  }
 }
 
 apiKeyInput.addEventListener('input', () => {
@@ -706,8 +716,7 @@ async function runDraft(mode){
     applyParsedNote(parsed);
     lastAutoDraftWordCount = wordsAtRequestTime;
   } catch(err){
-    // stay quiet on auto-update failures (it'll just retry next tick); surface manual ones
-    if(isManual){ showErr('Could not draft the note: ' + err.message); }
+    showErr((isManual ? 'Could not draft the note: ' : 'Auto-update failed: ') + err.message);
   } finally {
     draftInFlight = false;
     noteLoading.style.display = 'none';
