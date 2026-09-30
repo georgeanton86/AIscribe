@@ -410,6 +410,7 @@ const MANUAL_DRAFT_MODEL = 'claude-sonnet-5-5'; // higher quality — runs once,
 let recognition = null;
 let listening = false;
 let finalTranscript = '';
+let committedSegments = [];
 let interim = '';
 let startTime = null;
 let timerHandle = null;
@@ -447,6 +448,33 @@ function clearErr(){
 
 function wordCountOf(text){
   return text.trim().length ? text.trim().split(/\s+/).length : 0;
+}
+
+function normalizeForCompare(s){
+  return s.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+// Some mobile speech engines don't emit one immutable "final" per utterance —
+// they keep re-finalizing the SAME utterance from the start as it hears more
+// ("check" -> "check check" -> "check check is this working" -> ...), each as
+// a brand-new result. Collapse those into one settled segment instead of
+// concatenating every restatement.
+function commitFinalSegment(text){
+  const trimmed = text.trim();
+  if(!trimmed) return;
+  const normNew = normalizeForCompare(trimmed);
+  const lastSeg = committedSegments[committedSegments.length - 1];
+  if(lastSeg){
+    const normLast = normalizeForCompare(lastSeg);
+    if(normNew.startsWith(normLast)){
+      committedSegments[committedSegments.length - 1] = trimmed; // extended restatement — replace
+      return;
+    }
+    if(normLast.startsWith(normNew)){
+      return; // shorter replay of what's already committed — ignore
+    }
+  }
+  committedSegments.push(trimmed); // genuinely new utterance
 }
 
 function updateDraftEnabled(){
@@ -531,29 +559,22 @@ function initRecognition(){
   let lastFinalIndex = -1;
 
   r.onresult = (e) => {
-    let newFinal = '';
     interim = '';
+    let sawNewFinal = false;
     for(let i = 0; i < e.results.length; i++){
       const res = e.results[i];
       if(res.isFinal){
         if(i > lastFinalIndex){
-          newFinal += res[0].transcript + ' ';
+          commitFinalSegment(res[0].transcript);
           lastFinalIndex = i;
+          sawNewFinal = true;
         }
       } else {
         interim += res[0].transcript;
       }
     }
-    if(newFinal){
-      const trimmedNew = newFinal.trim();
-      const normalize = (s) => s.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
-      const normNew = normalize(trimmedNew);
-      const normExisting = normalize(finalTranscript);
-      // mobile browsers sometimes re-transcribe the same audio on restart;
-      // skip a chunk that just repeats what's already at the end of the transcript
-      if(normNew && !normExisting.endsWith(normNew)){
-        finalTranscript = (finalTranscript + ' ' + trimmedNew).trim();
-      }
+    if(sawNewFinal){
+      finalTranscript = committedSegments.join(' ').trim();
     }
     renderTranscript();
   };
@@ -607,6 +628,7 @@ recBtn.addEventListener('click', () => {
 
 resetBtn.addEventListener('click', () => {
   finalTranscript = '';
+  committedSegments = [];
   interim = '';
   listening = false;
   if(recognition){ try{ recognition.stop(); }catch(err){} }
