@@ -515,14 +515,21 @@ function initRecognition(){
   r.continuous = true;
   r.interimResults = true;
   r.lang = 'en-US';
+  // Android Chrome reports e.resultIndex unreliably (often stuck at 0),
+  // which makes already-finalized results look "new" on every event and
+  // causes runaway duplication. Track consumed results ourselves instead.
+  let lastFinalIndex = -1;
 
   r.onresult = (e) => {
     let newFinal = '';
     interim = '';
-    for(let i = e.resultIndex; i < e.results.length; i++){
+    for(let i = 0; i < e.results.length; i++){
       const res = e.results[i];
       if(res.isFinal){
-        newFinal += res[0].transcript + ' ';
+        if(i > lastFinalIndex){
+          newFinal += res[0].transcript + ' ';
+          lastFinalIndex = i;
+        }
       } else {
         interim += res[0].transcript;
       }
